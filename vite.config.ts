@@ -13,7 +13,7 @@ export default defineConfig(({ mode }) => {
   
   return {
     plugins: [react()],
-    base: '/Syslook/',
+    base: '/syslook-3d-quote/',
     optimizeDeps: {
       exclude: ['lucide-react'],
     },
