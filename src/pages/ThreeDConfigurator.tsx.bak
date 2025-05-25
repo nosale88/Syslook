@@ -1,0 +1,1420 @@
+import React, { useEffect, useRef, useState } from 'react';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import { DragControls } from 'three/examples/jsm/controls/DragControls.js';
+
+// 상수 및 가격 정보
+const STAGE_UNIT_PRICE_PLYWOOD = 20000;
+const STAGE_UNIT_PRICE_DECOTILE_USED = 6173;
+const STAGE_UNIT_PRICE_DECOTILE_NEW = 30864;
+const TRUSS_PRICE_PER_METER = 15000; // 기본 트러스용
+const LAYHER_PRICE_PER_CUBIC_METER = 35000; // 레이허 가격 (예: m^3 당) / 임시값
+const LIGHTING_PRICE_SPOT = 50000; // 스팟 조명 가격 (임시)
+const LIGHTING_PRICE_POINT = 30000; // 포인트 조명 가격 (임시)
+const GRID_SIZE = 0.1; // 그리드 크기 상수 (10cm)
+
+// 객체 타입 정의
+interface SceneObject {
+  id: string;
+  type: 'stage' | 'truss' | 'layher' | 'lighting';
+  mesh: THREE.Mesh | THREE.Group;
+  properties: any;
+  price: number;
+}
+
+// 로컬스토리지 저장용 객체 데이터 타입
+interface SavedSceneObjectData {
+  id: string;
+  type: 'stage' | 'truss' | 'layher' | 'lighting';
+  properties: any;
+  price: number;
+  position: { x: number; y: number; z: number };
+  rotation: { x: number; y: number; z: number; order: THREE.EulerOrder }; // Euler order 포함
+}
+
+interface SavedSceneState {
+  objects: SavedSceneObjectData[];
+  objectIdCounter: number;
+}
+
+// 스테이지 속성 인터페이스
+interface StageProperties {
+  width: number;
+  depth: number;
+  height: number;
+  material: string;
+}
+
+// 트러스 속성 인터페이스
+interface TrussProperties {
+  width: number;
+  depth: number;
+  height: number;
+  stageHeight?: number;
+}
+
+// 레이허 속성 인터페이스
+interface LayherProperties {
+  width: number;
+  depth: number;
+  height: number;
+}
+
+// 조명 속성 인터페이스
+interface LightingProperties {
+  type: 'spot' | 'point';
+  color: string; // hex color string (e.g., "#ffffff")
+  intensity: number;
+  distance?: number; // for point/spot
+  angle?: number;    // for spot
+  penumbra?: number; // for spot
+  decay?: number;    // for point/spot
+  // 위치(position)는 mesh 자체의 position으로 관리
+  targetPosition?: { x: number; y: number; z: number }; // for spot light target
+}
+
+// 컴포넌트 프롭스 인터페이스
+interface ThreeDConfiguratorProps {
+  onQuotationChange?: (items: QuotationItem[]) => void;
+  initialObjects?: SceneObject[]; // 초기 객체 로드를 위한 프롭 추가
+}
+
+// 견적 항목 인터페이스
+interface QuotationItem {
+  id: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  amount: number;
+}
+
+// 견적 항목 인터페이스
+
+const ThreeDConfigurator: React.FC<ThreeDConfiguratorProps> = ({ onQuotationChange, initialObjects }) => {
+  // Three.js refs
+  const mountRef = useRef<HTMLDivElement>(null);
+  const gizmoRef = useRef<HTMLDivElement>(null); // For the gizmo
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const orbitControlsRef = useRef<OrbitControls | null>(null);
+  const transformControlsRef = useRef<TransformControls | null>(null);
+  const dragControlsRef = useRef<DragControls | null>(null);
+  const raycasterRef = useRef<THREE.Raycaster>(new THREE.Raycaster());
+  const mouseRef = useRef<THREE.Vector2>(new THREE.Vector2());
+  const gridHelperRef = useRef<THREE.GridHelper | null>(null);
+  const axesHelperRef = useRef<THREE.AxesHelper | null>(null);
+  const initialCameraPositionRef = useRef<THREE.Vector3 | null>(null);
+  const initialCameraLookAtRef = useRef<THREE.Vector3 | null>(null);
+
+  // Transform mode state
+  const [currentTransformMode, setCurrentTransformMode] = useState<'translate' | 'rotate' | 'scale'>('translate');
+
+  // 팝업 상태
+  const [showObjectModal, setShowObjectModal] = useState(false);
+
+  // --- 요소 추가 함수 정의 (objectOptions 위로 이동) ---
+  const addStage = () => {
+    if (!sceneRef.current) return;
+    const newIdCounter = objectIdCounter + 1;
+    setObjectIdCounter(newIdCounter);
+    const defaultProps: StageProperties = {
+      width: 5.46, depth: 3.64, height: 0.6,
+      material: 'plywood_carpet_black'
+    };
+    const stageMesh = createStageMesh(defaultProps);
+    const newObj: SceneObject = {
+      id: `stage-${newIdCounter}`,
+      type: 'stage',
+      mesh: stageMesh,
+      properties: defaultProps,
+      price: calculateStagePrice(defaultProps)
+    };
+    const updatedObjects = [...sceneObjects, newObj];
+    setSceneObjects(updatedObjects);
+    sceneRef.current.add(stageMesh);
+    updateTotalQuote(updatedObjects);
+    selectObject(newObj);
+  };
+  const addTruss = () => {
+    if (!sceneRef.current) return;
+    const lastStage = sceneObjects.slice().reverse().find(obj => obj.type === 'stage');
+    if (!lastStage) {
+      alert("트러스를 배치할 무대가 필요합니다. 먼저 무대를 추가해주세요.");
+      return;
+    }
+    const newIdCounter = objectIdCounter + 1;
+    setObjectIdCounter(newIdCounter);
+    const defaultTrussProps: TrussProperties = { 
+      width: lastStage.properties.width, 
+      depth: lastStage.properties.depth, 
+      height: 3.0, 
+      stageHeight: lastStage.properties.height 
+    };
+    const trussMeshGroup = createTrussMesh(defaultTrussProps, lastStage.mesh);
+    const newObj: SceneObject = {
+      id: `truss-${newIdCounter}`,
+      type: 'truss',
+      mesh: trussMeshGroup,
+      properties: defaultTrussProps,
+      price: calculateTrussPrice(defaultTrussProps)
+    };
+    const updatedObjects = [...sceneObjects, newObj];
+    setSceneObjects(updatedObjects);
+    sceneRef.current.add(trussMeshGroup);
+    updateTotalQuote(updatedObjects);
+    selectObject(newObj);
+  };
+
+  const addLayher = () => {
+    if (!sceneRef.current) return;
+    const newIdCounter = objectIdCounter + 1;
+    setObjectIdCounter(newIdCounter);
+    const defaultLayherProps: LayherProperties = {
+      width: 5.46, depth: 3.64, height: 2.0
+    };
+    const layherMeshGroup = createLayherMesh(defaultLayherProps);
+    const newObj: SceneObject = {
+      id: `layher-${newIdCounter}`,
+      type: 'layher',
+      mesh: layherMeshGroup,
+      properties: defaultLayherProps,
+      price: calculateLayherPrice(defaultLayherProps)
+    };
+    const updatedObjects = [...sceneObjects, newObj];
+    setSceneObjects(updatedObjects);
+    sceneRef.current.add(layherMeshGroup);
+    updateTotalQuote(updatedObjects);
+    selectObject(newObj);
+  };
+
+  const addLighting = () => {
+    if (!sceneRef.current) return;
+    const newIdCounter = objectIdCounter + 1;
+    setObjectIdCounter(newIdCounter);
+    const defaultLightingProps: LightingProperties = {
+      type: 'spot',
+      color: '#ffffff',
+      intensity: 1,
+      distance: 100,
+      angle: Math.PI / 4,
+      penumbra: 0.1,
+      decay: 1,
+    };
+    const lightingMeshGroup = createLightingMesh(defaultLightingProps);
+    const newObj: SceneObject = {
+      id: `lighting-${newIdCounter}`,
+      type: 'lighting',
+      mesh: lightingMeshGroup,
+      properties: defaultLightingProps,
+      price: calculateLightingPrice(defaultLightingProps)
+    };
+    const updatedObjects = [...sceneObjects, newObj];
+    setSceneObjects(updatedObjects);
+    sceneRef.current.add(lightingMeshGroup);
+    updateTotalQuote(updatedObjects);
+    selectObject(newObj);
+  };
+
+  // --- 요소 추가 모달 (예시: 무대/트러스/레이허/조명 등) ---
+  const objectOptions = [
+    { id: 'stage', name: '무대', img: 'https://via.placeholder.com/120x80?text=무대', onClick: addStage },
+    { id: 'truss', name: '트러스', img: 'https://via.placeholder.com/120x80?text=트러스', onClick: addTruss },
+    { id: 'layher', name: '레이허', img: 'https://via.placeholder.com/120x80?text=레이허', onClick: addLayher },
+    { id: 'lighting', name: '조명', img: 'https://via.placeholder.com/120x80?text=조명', onClick: addLighting },
+  ];
+
+  const renderObjectModal = () => (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+      <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-xl relative animate-fadeIn">
+        <button className="absolute top-4 right-4 text-gray-400 hover:text-gray-800 text-2xl" onClick={() => setShowObjectModal(false)}>&times;</button>
+        <h2 className="text-xl font-bold mb-4">요소 추가</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          {objectOptions.map(opt => (
+            <div
+              key={opt.id}
+              className="border rounded-lg p-3 flex flex-col items-center cursor-pointer transition-all border-gray-200 hover:shadow-lg"
+              onClick={() => {
+                opt.onClick();
+                setShowObjectModal(false);
+              }}
+            >
+              <img src={opt.img} alt={opt.name} className="w-28 h-20 object-cover rounded mb-2" />
+              <div className="font-semibold">{opt.name}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  // 상태 관리
+  const [sceneObjects, setSceneObjects] = useState<SceneObject[]>(initialObjects || []);
+  const [selectedObject, setSelectedObject] = useState<SceneObject | null>(null);
+  const [totalPrice, setTotalPrice] = useState<number>(0);
+  const [quotationItems, setQuotationItems] = useState<QuotationItem[]>([]); // 상세 견적 항목 상태 추가
+  const [objectIdCounter, setObjectIdCounter] = useState<number>(0);
+  const [loading, setLoading] = useState<boolean>(false);
+
+  // 기본 상태 관리
+  const [gridVisible, setGridVisible] = useState(true);
+  const [axesVisible, setAxesVisible] = useState(true);
+  
+  // 템플릿 관련 코드 제거
+
+  // 가격 계산 함수
+  const calculateStagePrice = (props: StageProperties): number => {
+    const area = props.width * props.depth;
+    let unitPrice = STAGE_UNIT_PRICE_PLYWOOD;
+    if (props.material === 'decotile_used') unitPrice = STAGE_UNIT_PRICE_DECOTILE_USED;
+    else if (props.material === 'decotile_new') unitPrice = STAGE_UNIT_PRICE_DECOTILE_NEW;
+    return area * unitPrice;
+  };
+
+  const calculateTrussPrice = (props: TrussProperties): number => {
+    const perimeter = (props.width + props.depth) * 2;
+    const totalLength = perimeter + (4 * props.height);
+    return totalLength * TRUSS_PRICE_PER_METER;
+  };
+
+  const calculateLayherPrice = (props: LayherProperties): number => {
+    const volume = props.width * props.depth * props.height;
+    return volume * LAYHER_PRICE_PER_CUBIC_METER;
+  };
+
+  const calculateLightingPrice = (props: LightingProperties): number => {
+    switch (props.type) {
+      case 'spot':
+        return LIGHTING_PRICE_SPOT;
+      case 'point':
+        return LIGHTING_PRICE_POINT;
+      default:
+        return 0;
+    }
+  };
+
+  const aggregateQuotationItems = (objects: SceneObject[]): QuotationItem[] => {
+    const groupedItems: Map<string, QuotationItem> = new Map();
+
+    objects.forEach(obj => {
+      let key = "";
+      let description = "";
+      const props = obj.properties; // `any` 타입이므로, 타입 단언 사용
+
+      switch (obj.type) {
+        case 'stage':
+          const stageProps = props as StageProperties;
+          key = `stage-${stageProps.width}-${stageProps.depth}-${stageProps.height}-${stageProps.material}`;
+          description = `스테이지 (${stageProps.width.toFixed(2)}m x ${stageProps.depth.toFixed(2)}m x ${stageProps.height.toFixed(2)}m, 재질: ${stageProps.material})`;
+          break;
+        case 'truss':
+          const trussProps = props as TrussProperties;
+          key = `truss-${trussProps.width}-${trussProps.depth}-${trussProps.height}`;
+          description = `트러스 (${trussProps.width.toFixed(2)}m x ${trussProps.depth.toFixed(2)}m x ${trussProps.height.toFixed(2)}m)`;
+          break;
+        case 'layher':
+          const layherProps = props as LayherProperties;
+          key = `layher-${layherProps.width}-${layherProps.depth}-${layherProps.height}`;
+          description = `레이허 (${layherProps.width.toFixed(2)}m x ${layherProps.depth.toFixed(2)}m x ${layherProps.height.toFixed(2)}m)`;
+          break;
+        case 'lighting':
+          const lightingProps = props as LightingProperties;
+          key = `lighting-${lightingProps.type}-${lightingProps.color}-${lightingProps.intensity}`;
+          description = `조명 (타입: ${lightingProps.type}, 색상: ${lightingProps.color}, 강도: ${lightingProps.intensity}`;
+          if (lightingProps.type === 'spot') {
+            description += `, 각도: ${lightingProps.angle?.toFixed(2) ?? 'N/A'}, 거리: ${lightingProps.distance?.toFixed(2) ?? 'N/A'}`;
+          } else if (lightingProps.type === 'point') {
+            description += `, 거리: ${lightingProps.distance?.toFixed(2) ?? 'N/A'}`;
+          }
+          description += ')';
+          break;
+        default:
+          key = `unknown-${obj.id}`;
+          description = `알 수 없는 항목 (${obj.id})`;
+          break;
+      }
+
+      if (groupedItems.has(key)) {
+        const existingItem = groupedItems.get(key)!;
+        existingItem.quantity += 1;
+        existingItem.amount = existingItem.quantity * existingItem.unitPrice;
+      } else {
+        groupedItems.set(key, {
+          id: key, 
+          description: description,
+          quantity: 1,
+          unitPrice: obj.price, 
+          amount: obj.price,
+        });
+      }
+    });
+
+    return Array.from(groupedItems.values());
+  };
+
+  // 총 견적 업데이트 함수
+  const updateTotalQuote = (currentObjects?: SceneObject[]) => {
+    const objectsToProcess = currentObjects || sceneObjects; // 인자가 없으면 현재 sceneObjects 사용
+    const aggregatedItems = aggregateQuotationItems(objectsToProcess);
+    setQuotationItems(aggregatedItems); // quotationItems 상태 업데이트
+
+    if (onQuotationChange) {
+      onQuotationChange(aggregatedItems);
+    }
+
+    const newTotalPrice = aggregatedItems.reduce((sum, item) => sum + item.amount, 0);
+    setTotalPrice(newTotalPrice); // totalPrice 상태 업데이트 (lint 81d874ef 해결 시도)
+  };
+
+  // 3D 객체 생성 함수
+  const createStageMesh = (props: StageProperties): THREE.Mesh => {
+    const geometry = new THREE.BoxGeometry(props.width, props.height, props.depth);
+    let color = 0x888888;
+    if (props.material === 'plywood_carpet_black') color = 0x333333;
+    else if (props.material === 'plywood_carpet_red') color = 0xcc0000;
+    else if (props.material === 'plywood_carpet_gray') color = 0x777777;
+    else if (props.material.startsWith('decotile')) color = 0x1a1a1a;
+    const material = new THREE.MeshStandardMaterial({ color: color, roughness: 0.7, metalness: 0.1 });
+    const stageMesh = new THREE.Mesh(geometry, material);
+    stageMesh.castShadow = true;
+    stageMesh.receiveShadow = true;
+    stageMesh.position.y = props.height / 2;
+    return stageMesh;
+  };
+
+  const createTrussMesh = (props: TrussProperties, stageMesh?: THREE.Mesh | THREE.Group): THREE.Group => {
+    const group = new THREE.Group();
+    const trussRadius = 0.1;
+    const trussMaterial = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 0.5, metalness: 0.8 });
+
+    const stageWidth = props.width;
+    const stageDepth = props.depth;
+    const trussStructureHeight = props.height;
+    const stagePlatformHeight = props.stageHeight || 0.6;
+
+    const postPositions = [
+      { x: -stageWidth / 2, z: -stageDepth / 2 }, { x: stageWidth / 2, z: -stageDepth / 2 },
+      { x: -stageWidth / 2, z: stageDepth / 2 },  { x: stageWidth / 2, z: stageDepth / 2 },
+    ];
+    postPositions.forEach(pos => {
+      const geometry = new THREE.CylinderGeometry(trussRadius, trussRadius, trussStructureHeight, 12);
+      const post = new THREE.Mesh(geometry, trussMaterial);
+      post.position.set(pos.x, stagePlatformHeight + trussStructureHeight / 2, pos.z);
+      post.castShadow = true;
+      group.add(post);
+    });
+    let beamGeom = new THREE.BoxGeometry(stageWidth, trussRadius * 2, trussRadius * 2);
+    let beam = new THREE.Mesh(beamGeom, trussMaterial);
+    beam.position.set(0, stagePlatformHeight + trussStructureHeight - trussRadius, -stageDepth / 2);
+    beam.castShadow = true; group.add(beam);
+    beam = new THREE.Mesh(beamGeom.clone(), trussMaterial);
+    beam.position.set(0, stagePlatformHeight + trussStructureHeight - trussRadius, stageDepth / 2);
+    beam.castShadow = true; group.add(beam);
+    beamGeom = new THREE.BoxGeometry(trussRadius * 2, trussRadius * 2, stageDepth);
+    beam = new THREE.Mesh(beamGeom, trussMaterial);
+    beam.position.set(-stageWidth / 2, stagePlatformHeight + trussStructureHeight - trussRadius, 0);
+    beam.castShadow = true; group.add(beam);
+    beam = new THREE.Mesh(beamGeom.clone(), trussMaterial);
+    beam.position.set(stageWidth / 2, stagePlatformHeight + trussStructureHeight - trussRadius, 0);
+    beam.castShadow = true; group.add(beam);
+    
+    if (stageMesh) {
+        group.position.copy(stageMesh.position);
+        group.position.y = 0;
+    }
+    return group;
+  };
+
+  const createLayherMesh = (props: LayherProperties): THREE.Group => {
+    const group = new THREE.Group();
+    const layherMaterial = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 0.5, metalness: 0.8 });
+
+    const geometry = new THREE.BoxGeometry(props.width, props.height, props.depth);
+    const layher = new THREE.Mesh(geometry, layherMaterial);
+    layher.castShadow = true;
+    layher.receiveShadow = true;
+    layher.position.y = props.height / 2;
+    group.add(layher);
+
+    return group;
+  };
+
+  const createLightingMesh = (props: LightingProperties): THREE.Group => {
+    const group = new THREE.Group();
+    // 시각적 표현 (예: 작은 구 또는 아이콘)
+    const visualizerGeometry = new THREE.SphereGeometry(0.2, 16, 8);
+    const visualizerMaterial = new THREE.MeshBasicMaterial({ color: props.color, wireframe: true });
+    const visualizer = new THREE.Mesh(visualizerGeometry, visualizerMaterial);
+    visualizer.name = "lighting_visualizer"; // 드래그 및 선택을 위해
+    group.add(visualizer);
+
+    let light: THREE.Light;
+    switch (props.type) {
+      case 'spot':
+        const spotLight = new THREE.SpotLight(props.color, props.intensity, props.distance, props.angle, props.penumbra, props.decay);
+        spotLight.castShadow = true;
+        // 스팟라이트의 타겟 설정 (기본적으로 (0,0,0)을 향하지만, 조절 가능해야 함)
+        // targetPosition이 있으면 해당 위치로, 없으면 조명의 위치보다 아래로 향하게 설정
+        if (props.targetPosition) {
+          spotLight.target.position.set(props.targetPosition.x, props.targetPosition.y, props.targetPosition.z);
+        } else {
+          // group에 target을 추가하고, target의 위치를 조명의 위치보다 아래로 설정
+          const targetObject = new THREE.Object3D();
+          targetObject.position.set(0, -1, 0); // 기본값: 조명 바로 아래
+          group.add(targetObject); // group에 추가해야 조명과 함께 이동
+          spotLight.target = targetObject;
+        }
+        group.add(spotLight.target); // target도 씬에 추가되어야 함 (또는 group에)
+        light = spotLight;
+        break;
+      case 'point':
+        const pointLight = new THREE.PointLight(props.color, props.intensity, props.distance, props.decay);
+        // pointLight.castShadow = true; // PointLight 그림자는 성능에 영향이 큼. 필요시 활성화
+        light = pointLight;
+        break;
+      default:
+        // 기본값 또는 오류 처리
+        light = new THREE.PointLight(0xffffff, 0, 0); // 보이지 않는 조명
+        break;
+    }
+    light.name = "actual_light";
+    group.add(light);
+    // 초기 위치 설정 (예: 약간 위쪽)
+    group.position.y = 2; // 기본 높이
+    return group;
+  };
+
+  // 객체 삭제 함수
+  const deleteSelectedObject = () => {
+    if (!selectedObject || !sceneRef.current) return;
+
+    sceneRef.current.remove(selectedObject.mesh);
+    if (selectedObject.mesh instanceof THREE.Mesh) {
+      if (selectedObject.mesh.geometry) selectedObject.mesh.geometry.dispose();
+      if (selectedObject.mesh.material) {
+        if (Array.isArray(selectedObject.mesh.material)) {
+          selectedObject.mesh.material.forEach((m: THREE.Material) => m.dispose());
+        } else {
+          selectedObject.mesh.material.dispose();
+        }
+      }
+    } else if (selectedObject.mesh instanceof THREE.Group) { 
+      selectedObject.mesh.traverse((child: any) => {
+        if (child instanceof THREE.Mesh) {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach((m: THREE.Material) => m.dispose());
+            } else {
+              child.material.dispose();
+            }
+          }
+        }
+      });
+    }
+
+    const updatedObjects = sceneObjects.filter(obj => obj.id !== selectedObject.id);
+    setSceneObjects(updatedObjects);
+    deselectObject();
+    updateTotalQuote(updatedObjects);
+  };
+
+  // 속성 패널 렌더링 함수
+  const renderPropertiesPanel = () => {
+    if (!selectedObject) return null;
+
+    switch (selectedObject.type) {
+      case 'stage':
+        const stageProps = selectedObject.properties as StageProperties;
+        return (
+          <>
+            <div>
+              <label htmlFor="propWidth" className="block text-sm font-medium text-gray-700 mb-1">가로 (m):</label>
+              <input type="number" id="propWidth" className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" step="0.1" defaultValue={stageProps.width} />
+            </div>
+            <div>
+              <label htmlFor="propDepth" className="block text-sm font-medium text-gray-700 mb-1">세로 (m):</label>
+              <input type="number" id="propDepth" className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" step="0.1" defaultValue={stageProps.depth} />
+            </div>
+            <div>
+              <label htmlFor="propHeight" className="block text-sm font-medium text-gray-700 mb-1">높이 (m):</label>
+              <input type="number" id="propHeight" className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" step="0.1" defaultValue={stageProps.height} />
+            </div>
+            <div>
+              <label htmlFor="propMaterial" className="block text-sm font-medium text-gray-700 mb-1">바닥 재질:</label>
+              <select id="propMaterial" className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" defaultValue={stageProps.material}>
+                <option value="plywood_carpet_black">기본 (합판 + 파이텍스 검정)</option>
+                <option value="plywood_carpet_red">기본 (합판 + 파이텍스 빨강)</option>
+                <option value="plywood_carpet_gray">기본 (합판 + 파이텍스 회색)</option>
+                <option value="decotile_used">데코타일 (중고 - 검정)</option>
+                <option value="decotile_new">데코타일 (신품 - 검정)</option>
+              </select>
+            </div>
+          </>
+        );
+      case 'truss':
+        const trussProps = selectedObject.properties as TrussProperties;
+        return (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">기준 무대 가로: {trussProps.width.toFixed(2)}m (참고용)</label>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">기준 무대 세로: {trussProps.depth.toFixed(2)}m (참고용)</label>
+            </div>
+            <div>
+              <label htmlFor="propTrussHeight" className="block text-sm font-medium text-gray-700 mb-1">트러스 높이 (m):</label>
+              <input type="number" id="propTrussHeight" className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" step="0.1" defaultValue={trussProps.height} />
+            </div>
+            <div className="md:col-span-2"><p className="text-sm text-gray-500">참고: 현재 트러스의 가로/세로는 연결된 무대의 크기를 따릅니다. 위치는 드래그로 조정하세요.</p></div>
+          </>
+        );
+      case 'layher':
+        const layherProps = selectedObject.properties as LayherProperties;
+        return (
+          <>
+            <div>
+              <label htmlFor="propWidth" className="block text-sm font-medium text-gray-700 mb-1">가로 (m):</label>
+              <input type="number" id="propWidth" className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" step="0.1" defaultValue={layherProps.width} />
+            </div>
+            <div>
+              <label htmlFor="propDepth" className="block text-sm font-medium text-gray-700 mb-1">세로 (m):</label>
+              <input type="number" id="propDepth" className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" step="0.1" defaultValue={layherProps.depth} />
+            </div>
+            <div>
+              <label htmlFor="propHeight" className="block text-sm font-medium text-gray-700 mb-1">높이 (m):</label>
+              <input type="number" id="propHeight" className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" step="0.1" defaultValue={layherProps.height} />
+            </div>
+          </>
+        );
+      case 'lighting':
+        const lightingProps = selectedObject.properties as LightingProperties;
+        return (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">조명 타입: {lightingProps.type}</label>
+            </div>
+            <div>
+              <label htmlFor="propColor" className="block text-sm font-medium text-gray-700 mb-1">색상:</label>
+              <input type="color" id="propColor" className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" defaultValue={lightingProps.color} />
+            </div>
+            <div>
+              <label htmlFor="propIntensity" className="block text-sm font-medium text-gray-700 mb-1">강도:</label>
+              <input type="number" id="propIntensity" className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" step="0.1" defaultValue={lightingProps.intensity} />
+            </div>
+            {lightingProps.type === 'spot' && (
+              <>
+                <div>
+                  <label htmlFor="propDistance" className="block text-sm font-medium text-gray-700 mb-1">거리:</label>
+                  <input type="number" id="propDistance" className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" step="0.1" defaultValue={lightingProps.distance} />
+                </div>
+                <div>
+                  <label htmlFor="propAngle" className="block text-sm font-medium text-gray-700 mb-1">각도:</label>
+                  <input type="number" id="propAngle" className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" step="0.1" defaultValue={lightingProps.angle} />
+                </div>
+                <div>
+                  <label htmlFor="propPenumbra" className="block text-sm font-medium text-gray-700 mb-1">펜움브라:</label>
+                  <input type="number" id="propPenumbra" className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" step="0.1" defaultValue={lightingProps.penumbra} />
+                </div>
+              </>
+            )}
+          </>
+        );
+      default:
+        return <p>선택된 요소의 속성을 편집할 수 없습니다.</p>;
+    }
+  };
+
+  // 속성 적용 함수
+  const applyProperties = () => {
+    if (!selectedObject || !sceneRef.current) return;
+
+    const props = { ...selectedObject.properties }; // `any` 타입이므로, 타입 단언 사용
+
+    let newMesh: THREE.Mesh | THREE.Group | undefined;
+    let newPrice = selectedObject.price;
+    let propertiesChanged = false;
+
+    if (selectedObject.type === 'stage') {
+      const newWidth = parseFloat((document.getElementById('propWidth') as HTMLInputElement).value);
+      const newDepth = parseFloat((document.getElementById('propDepth') as HTMLInputElement).value);
+      const newHeight = parseFloat((document.getElementById('propHeight') as HTMLInputElement).value);
+      const newMaterial = (document.getElementById('propMaterial') as HTMLSelectElement).value;
+
+      if (props.width !== newWidth || props.depth !== newDepth || props.height !== newHeight || props.material !== newMaterial) {
+        props.width = newWidth;
+        props.depth = newDepth;
+        props.height = newHeight;
+        props.material = newMaterial;
+        newMesh = createStageMesh(props as StageProperties);
+        newPrice = calculateStagePrice(props as StageProperties);
+        propertiesChanged = true;
+      }
+    } else if (selectedObject.type === 'truss') {
+      const newTrussHeight = parseFloat((document.getElementById('propTrussHeight') as HTMLInputElement).value);
+      if (props.height !== newTrussHeight) {
+        props.height = newTrussHeight;
+        newMesh = createTrussMesh(props as TrussProperties, undefined); // 연결된 stageMesh는 불러오기 시점에는 찾기 어려움
+        newPrice = calculateTrussPrice(props as TrussProperties);
+        propertiesChanged = true;
+      }
+    } else if (selectedObject.type === 'layher') {
+      const newWidth = parseFloat((document.getElementById('propWidth') as HTMLInputElement).value);
+      const newDepth = parseFloat((document.getElementById('propDepth') as HTMLInputElement).value);
+      const newHeight = parseFloat((document.getElementById('propHeight') as HTMLInputElement).value);
+      if (props.width !== newWidth || props.depth !== newDepth || props.height !== newHeight) {
+        props.width = newWidth;
+        props.depth = newDepth;
+        props.height = newHeight;
+        newMesh = createLayherMesh(props as LayherProperties);
+        newPrice = calculateLayherPrice(props as LayherProperties);
+        propertiesChanged = true;
+      }
+    } else if (selectedObject.type === 'lighting') {
+      const newColor = (document.getElementById('propColor') as HTMLInputElement).value;
+      const newIntensity = parseFloat((document.getElementById('propIntensity') as HTMLInputElement).value);
+      const newDistance = parseFloat((document.getElementById('propDistance') as HTMLInputElement).value);
+      const newAngle = parseFloat((document.getElementById('propAngle') as HTMLInputElement).value);
+      const newPenumbra = parseFloat((document.getElementById('propPenumbra') as HTMLInputElement).value);
+
+      if (props.color !== newColor || props.intensity !== newIntensity || props.distance !== newDistance || props.angle !== newAngle || props.penumbra !== newPenumbra) {
+        props.color = newColor;
+        props.intensity = newIntensity;
+        props.distance = newDistance;
+        props.angle = newAngle;
+        props.penumbra = newPenumbra;
+        newMesh = createLightingMesh(props as LightingProperties);
+        newPrice = calculateLightingPrice(props as LightingProperties);
+        propertiesChanged = true;
+      }
+    }
+
+    if (propertiesChanged && newMesh) {
+      newMesh.position.copy(selectedObject.mesh.position);
+      newMesh.rotation.copy(selectedObject.mesh.rotation);
+
+      sceneRef.current.remove(selectedObject.mesh);
+      if (selectedObject.mesh instanceof THREE.Mesh) {
+        if (selectedObject.mesh.geometry) selectedObject.mesh.geometry.dispose();
+        if (selectedObject.mesh.material) {
+          if (Array.isArray(selectedObject.mesh.material)) {
+            selectedObject.mesh.material.forEach((m: THREE.Material) => m.dispose());
+          } else {
+            selectedObject.mesh.material.dispose();
+          }
+        }
+      } else if (selectedObject.mesh instanceof THREE.Group) { 
+        selectedObject.mesh.traverse((child: any) => {
+          if (child instanceof THREE.Mesh) {
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) {
+              if (Array.isArray(child.material)) {
+                child.material.forEach((m: THREE.Material) => m.dispose());
+              } else {
+                child.material.dispose();
+              }
+            }
+          }
+        });
+      }
+
+      const updatedObject = {
+        ...selectedObject,
+        mesh: newMesh,
+        properties: props,
+        price: newPrice,
+      };
+
+      const updatedObjects = sceneObjects.map(obj => {
+        if (obj.id === selectedObject.id) {
+          return updatedObject;
+        }
+        return obj;
+      });
+      setSceneObjects(updatedObjects);
+      sceneRef.current.add(newMesh);
+      updateTotalQuote(updatedObjects);
+      
+      setTimeout(() => selectObject(updatedObject), 0);
+    } else if (propertiesChanged) {
+      const updatedObject = {
+        ...selectedObject,
+        properties: props,
+        price: newPrice,
+      };
+      const updatedObjects = sceneObjects.map(obj => {
+        if (obj.id === selectedObject.id) {
+          return updatedObject;
+        }
+        return obj;
+      });
+      setSceneObjects(updatedObjects);
+      updateTotalQuote(updatedObjects);
+      setTimeout(() => selectObject(updatedObject), 0);
+    }
+  };
+
+  // 재귀적으로 객체의 emissive 속성을 설정하는 헬퍼 함수
+  const setMaterialEmissiveRecursive = (object: THREE.Object3D, hex: number) => {
+    if (object instanceof THREE.Mesh) {
+      const material = object.material;
+      if (Array.isArray(material)) {
+        material.forEach((mat: THREE.Material) => {
+          if (mat && 'emissive' in mat && mat.emissive instanceof THREE.Color) {
+            mat.emissive.setHex(hex);
+          }
+        });
+      } else if (material && 'emissive' in material && (material as any).emissive instanceof THREE.Color) {
+        ((material as any).emissive as THREE.Color).setHex(hex);
+      }
+    } else if (object instanceof THREE.Group) {
+      object.children.forEach(child => {
+        setMaterialEmissiveRecursive(child, hex);
+      });
+    }
+  };
+
+  // 씬 초기화
+  useEffect(() => {
+    if (!mountRef.current) return;
+
+    setLoading(true);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xe0e0e0);
+    sceneRef.current = scene;
+
+    const container = mountRef.current; // Use mountRef directly
+    // if (!container) return; // mountRef.current is already checked
+    
+    const camera = new THREE.PerspectiveCamera(
+      60, 
+      container.clientWidth / container.clientHeight, 
+      0.1, 
+      2000
+    );
+    camera.position.set(10, 10, 10);
+    cameraRef.current = camera;
+    if (!initialCameraPositionRef.current) {
+      initialCameraPositionRef.current = camera.position.clone();
+    }
+    if (!initialCameraLookAtRef.current) {
+      // Assuming camera looks at origin initially, or derive from controls target
+      initialCameraLookAtRef.current = new THREE.Vector3(0,0,0); 
+    }
+
+    const renderer = new THREE.WebGLRenderer({ 
+      // canvas: canvasRef.current, // Removed: Renderer will create its own canvas
+      antialias: true 
+    });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+    rendererRef.current = renderer;
+    mountRef.current.appendChild(renderer.domElement); // Append renderer's canvas to mountRef
+
+    const orbitControls = new OrbitControls(camera, renderer.domElement); // Use renderer.domElement
+    orbitControls.enableDamping = true;
+    orbitControls.dampingFactor = 0.05;
+    orbitControls.minDistance = 3;
+    orbitControls.maxDistance = 100;
+    orbitControlsRef.current = orbitControls;
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+    scene.add(ambientLight);
+    
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(15, 20, 10);
+    directionalLight.castShadow = true;
+    directionalLight.shadow.mapSize.width = 1024;
+    directionalLight.shadow.mapSize.height = 1024;
+    scene.add(directionalLight);
+
+    const gridHelper = new THREE.GridHelper(50, 50, 0x888888, 0xcccccc);
+    gridHelper.visible = gridVisible; // Controlled by state
+    scene.add(gridHelper);
+    gridHelperRef.current = gridHelper;
+
+    const axesHelper = new THREE.AxesHelper(5);
+    axesHelper.visible = axesVisible; // Controlled by state
+    scene.add(axesHelper);
+    axesHelperRef.current = axesHelper;
+
+    const planeGeometry = new THREE.PlaneGeometry(50, 50);
+    const planeMaterial = new THREE.ShadowMaterial({ opacity: 0.3 });
+    const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+    plane.rotation.x = -Math.PI / 2;
+    plane.position.y = -0.01;
+    plane.receiveShadow = true;
+    scene.add(plane);
+
+    const animate = () => {
+      requestAnimationFrame(animate);
+      if (orbitControlsRef.current) orbitControlsRef.current.update();
+      if (rendererRef.current && sceneRef.current && cameraRef.current) {
+        rendererRef.current.render(sceneRef.current, cameraRef.current);
+      }
+    };
+    animate();
+
+    const handleResize = () => {
+      if (!container || !cameraRef.current || !rendererRef.current) return;
+      
+      cameraRef.current.aspect = container.clientWidth / container.clientHeight;
+      cameraRef.current.updateProjectionMatrix();
+      rendererRef.current.setSize(container.clientWidth, container.clientHeight);
+    };
+    window.addEventListener('resize', handleResize);
+
+    setLoading(false);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (mountRef.current && rendererRef.current && rendererRef.current.domElement) {
+        // Check if the renderer's domElement is a child of mountRef before removing
+        if (mountRef.current.contains(rendererRef.current.domElement)) {
+          mountRef.current.removeChild(rendererRef.current.domElement);
+        }
+      }
+      if (rendererRef.current) {
+        rendererRef.current.dispose();
+        rendererRef.current = null; // Help with GC and prevent reuse of disposed renderer
+      }
+      if (orbitControlsRef.current) {
+        orbitControlsRef.current.dispose();
+        orbitControlsRef.current = null;
+      }
+      if (dragControlsRef.current) {
+        dragControlsRef.current.dispose();
+        dragControlsRef.current = null;
+      }
+      // Scene, camera, and other refs don't typically need explicit nulling for disposal
+      // unless they hold significant resources not managed by Three.js's dispose methods.
+      // However, setting them to null can help indicate they are no longer valid.
+      sceneRef.current = null;
+      cameraRef.current = null;
+      gridHelperRef.current = null;
+      axesHelperRef.current = null;
+      // transformControlsRef is managed elsewhere (e.g., when object is deselected)
+    };
+  }, []);
+
+  // 캔버스 클릭 이벤트 핸들러
+  const handleCanvasClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!mountRef.current || !sceneRef.current || !cameraRef.current) return;
+
+    const rect = mountRef.current.getBoundingClientRect();
+    mouseRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouseRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    raycasterRef.current.setFromCamera(mouseRef.current, cameraRef.current);
+    const intersects = raycasterRef.current.intersectObjects(
+      sceneObjects.map(obj => obj.mesh), 
+      true
+    );
+
+    if (intersects.length > 0) {
+      let clickedMesh = intersects[0].object;
+      
+      while (clickedMesh.parent && clickedMesh.parent !== sceneRef.current) {
+        const parentObj = sceneObjects.find(obj => obj.mesh === clickedMesh.parent);
+        if (parentObj) {
+          clickedMesh = clickedMesh.parent;
+          break;
+        }
+        clickedMesh = clickedMesh.parent;
+      }
+      
+      const foundObject = sceneObjects.find(obj => obj.mesh === clickedMesh);
+      if (foundObject) {
+        selectObject(foundObject);
+      } else {
+        deselectObject();
+      }
+    } else {
+      deselectObject();
+    }
+  };
+
+  // 선택 해제 함수
+  const deselectObject = () => {
+    if (selectedObject) {
+      setMaterialEmissiveRecursive(selectedObject.mesh, 0x000000);
+      setSelectedObject(null);
+    }
+    if (dragControlsRef.current) {
+      dragControlsRef.current.dispose();
+      dragControlsRef.current = null;
+    }
+  };
+
+  // 객체 선택 함수
+  const selectObject = (objToSelect: SceneObject) => {
+    if (selectedObject) {
+      setMaterialEmissiveRecursive(selectedObject.mesh, 0x000000);
+    }
+    setMaterialEmissiveRecursive(objToSelect.mesh, 0xaaaaaa); 
+
+    setSelectedObject(objToSelect);
+    setupDragControls(objToSelect); 
+  };
+
+  // 드래그 컨트롤 설정 함수
+  const setupDragControls = (targetObject: SceneObject) => {
+    if (!cameraRef.current || !rendererRef.current || !sceneRef.current) return;
+    
+    if (dragControlsRef.current) {
+      dragControlsRef.current.dispose();
+    }
+
+    const controls = new DragControls([targetObject.mesh], cameraRef.current, rendererRef.current.domElement);
+    
+    interface DragControlsEvent {
+      type: 'dragstart' | 'drag' | 'dragend';
+      object: THREE.Object3D;
+    }
+
+    const onDragStart = (event: DragControlsEvent) => {
+      if (orbitControlsRef.current) orbitControlsRef.current.enabled = false;
+      setMaterialEmissiveRecursive(event.object, 0xcccccc); 
+    };
+
+    const onDrag = (event: DragControlsEvent) => {
+      event.object.position.x = Math.round(event.object.position.x / GRID_SIZE) * GRID_SIZE;
+      event.object.position.z = Math.round(event.object.position.z / GRID_SIZE) * GRID_SIZE;
+    };
+
+    const onDragEnd = (event: DragControlsEvent) => {
+      if (orbitControlsRef.current) orbitControlsRef.current.enabled = true;
+      setMaterialEmissiveRecursive(event.object, 0xaaaaaa);
+      
+      const updatedObjects = sceneObjects.map(obj => {
+        if (obj.id === targetObject.id) {
+          return { ...obj, mesh: event.object as THREE.Mesh | THREE.Group }; 
+        }
+        return obj;
+      });
+      setSceneObjects(updatedObjects);
+    };
+
+    controls.addEventListener('dragstart', onDragStart);
+    controls.addEventListener('drag', onDrag);
+    controls.addEventListener('dragend', onDragEnd);
+
+    dragControlsRef.current = controls;
+  };
+
+  // 씬 정리 및 객체 제거 헬퍼 함수
+  const clearSceneAndObjects = () => {
+    if (sceneRef.current) {
+      sceneObjects.forEach(obj => {
+        if (obj.mesh) {
+          sceneRef.current?.remove(obj.mesh);
+          if (obj.mesh instanceof THREE.Mesh) {
+            if (obj.mesh.geometry) obj.mesh.geometry.dispose();
+            if (obj.mesh.material) {
+              if (Array.isArray(obj.mesh.material)) {
+                obj.mesh.material.forEach(m => m.dispose());
+              } else {
+                obj.mesh.material.dispose();
+              }
+            }
+          } else if (obj.mesh instanceof THREE.Group) { 
+            obj.mesh.traverse((child: any) => {
+              if (child instanceof THREE.Mesh) {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                  if (Array.isArray(child.material)) {
+                    child.material.forEach(m => m.dispose());
+                  } else {
+                    child.material.dispose();
+                  }
+                }
+              }
+              if (child instanceof THREE.Light) {
+                child.dispose(); // 조명 객체도 명시적으로 dispose
+              }
+            });
+          }
+        }
+      });
+    }
+    setSceneObjects([]);
+    setSelectedObject(null);
+    setTotalPrice(0);
+    setQuotationItems([]);
+    // objectIdCounter는 유지하거나 필요에 따라 초기화. 현재는 유지하는 것으로 가정.
+  };
+
+  // 씬 저장 함수
+  const handleSaveScene = () => {
+    if (!sceneObjects) return;
+    console.log("Saving scene to localStorage...");
+    const dataToSave: SavedSceneObjectData[] = sceneObjects.map(obj => ({
+      id: obj.id,
+      type: obj.type,
+      properties: obj.properties,
+      price: obj.price,
+      position: { x: obj.mesh.position.x, y: obj.mesh.position.y, z: obj.mesh.position.z },
+      rotation: { 
+        x: obj.mesh.rotation.x, 
+        y: obj.mesh.rotation.y, 
+        z: obj.mesh.rotation.z, 
+        order: obj.mesh.rotation.order 
+      },
+    }));
+
+    const sceneState: SavedSceneState = {
+      objects: dataToSave,
+      objectIdCounter: objectIdCounter,
+    };
+
+    try {
+      localStorage.setItem('syslookSceneDataV2', JSON.stringify(sceneState));
+      alert('씬이 로컬 스토리지에 저장되었습니다!');
+    } catch (error) {
+      console.error("Error saving scene to localStorage:", error);
+      alert('씬 저장에 실패했습니다. 콘솔을 확인해주세요.');
+    }
+  };
+
+  // 씬을 이미지로 저장하는 함수
+  const handleSaveSceneAsImage = () => {
+    if (rendererRef.current && cameraRef.current && sceneRef.current) {
+      try {
+        // 현재 렌더링 상태를 보장하기 위해 한 프레임 렌더링
+        rendererRef.current.render(sceneRef.current, cameraRef.current);
+        
+        const dataURL = rendererRef.current.domElement.toDataURL('image/png');
+        const link = document.createElement('a');
+        link.download = 'scene_capture.png';
+        link.href = dataURL;
+        document.body.appendChild(link); // Firefox에서 필요할 수 있음
+        link.click();
+        document.body.removeChild(link);
+        alert('씬 이미지가 저장되었습니다!');
+      } catch (error) {
+        console.error("Error saving scene as image:", error);
+        alert('씬 이미지 저장에 실패했습니다. 콘솔을 확인해주세요.');
+      }
+    } else {
+      alert('렌더러 또는 씬이 준비되지 않아 이미지를 저장할 수 없습니다.');
+    }
+  };
+
+  // 씬 불러오기 함수
+  const handleLoadScene = () => {
+    console.log("Attempting to load scene from localStorage...");
+    try {
+      const savedDataString = localStorage.getItem('syslookSceneDataV2');
+      if (savedDataString) {
+        const savedState: SavedSceneState = JSON.parse(savedDataString);
+        
+        setLoading(true); // 로딩 시작
+        clearSceneAndObjects();
+        
+        // React 상태 업데이트 및 Three.js 정리가 반영될 시간을 약간 줌
+        setTimeout(() => {
+          if (!sceneRef.current) {
+            console.error("Scene reference is not available for loading objects.");
+            setLoading(false);
+            return;
+          }
+
+          const loadedObjects: SceneObject[] = [];
+          savedState.objects.forEach(data => {
+            let mesh: THREE.Mesh | THREE.Group | undefined;
+            let price = data.price; // 저장된 가격 사용 또는 필요시 재계산
+
+            switch (data.type) {
+              case 'stage':
+                mesh = createStageMesh(data.properties as StageProperties);
+                // price = calculateStagePrice(data.properties as StageProperties); // 필요시 재계산
+                break;
+              case 'truss':
+                // 트러스는 연결된 무대가 없을 수 있으므로, 생성 함수에서 이를 처리해야 함.
+                // 여기서는 단순화를 위해 undefined를 전달하거나, 저장된 stageHeight를 사용.
+                const trussProps = data.properties as TrussProperties;
+                mesh = createTrussMesh(trussProps, undefined); // 연결된 stageMesh는 불러오기 시점에는 찾기 어려움
+                // price = calculateTrussPrice(trussProps);
+                break;
+              case 'layher':
+                mesh = createLayherMesh(data.properties as LayherProperties);
+                // price = calculateLayherPrice(data.properties as LayherProperties);
+                break;
+              case 'lighting':
+                mesh = createLightingMesh(data.properties as LightingProperties);
+                // price = calculateLightingPrice(data.properties as LightingProperties);
+                break;
+            }
+
+            if (mesh) {
+              mesh.position.set(data.position.x, data.position.y, data.position.z);
+              mesh.rotation.set(data.rotation.x, data.rotation.y, data.rotation.z, data.rotation.order as THREE.EulerOrder);
+              sceneRef.current?.add(mesh);
+              loadedObjects.push({
+                id: data.id,
+                type: data.type,
+                mesh: mesh,
+                properties: data.properties,
+                price: price, 
+              });
+            }
+          });
+
+          setSceneObjects(loadedObjects);
+          setObjectIdCounter(savedState.objectIdCounter);
+          updateTotalQuote(loadedObjects); // 견적 업데이트
+          setLoading(false); // 로딩 완료
+          alert('씬을 로컬 스토리지에서 불러왔습니다!');
+        }, 150); // 지연 시간을 약간 늘려 안정성 확보
+
+      } else {
+        alert('저장된 씬 데이터가 없습니다.');
+      }
+    } catch (error) {
+      console.error("Error loading scene from localStorage:", error);
+      setLoading(false);
+      alert('씬 불러오기에 실패했습니다. 콘솔을 확인해주세요.');
+    }
+  };
+
+  // 견적서 생성 시작 함수
+  const handleInitiateQuotationGeneration = () => {
+    if (quotationItems.length === 0) {
+      alert('견적 항목이 없습니다. 먼저 요소를 추가해주세요.');
+      return;
+    }
+    alert('견적서 생성 기능이 곧 추가될 예정입니다.');
+  };
+
+  // 선택된 객체에 TransformControls 연결 및 속성 업데이트
+  useEffect(() => {
+    if (transformControlsRef.current && sceneRef.current) {
+      const controls = transformControlsRef.current;
+
+      const onObjectChange = () => {
+        if (selectedObject && selectedObject.mesh) {
+          // Update properties based on mesh's new transform
+          // const newProperties = { ...selectedObject.properties }; // Commented out to fix unused variable
+          // Example: if your properties store position, rotation, scale
+          // newProperties.position = selectedObject.mesh.position.clone();
+          // newProperties.rotation = selectedObject.mesh.rotation.clone();
+          // newProperties.scale = selectedObject.mesh.scale.clone();
+          // updateObjectProperties(selectedObject.id, newProperties); // You'll need a function like this
+          // This is a placeholder; actual property update logic will depend on your SceneObject structure
+        }
+      };
+
+      controls.addEventListener('objectChange', onObjectChange);
+
+      if (selectedObject && selectedObject.mesh) {
+        controls.attach(selectedObject.mesh);
+        controls.setMode(currentTransformMode); // Assuming currentTransformMode state exists
+        // sceneRef.current.add(controls); // Removed: controls are added once during init
+      } else {
+        controls.detach();
+        // if (sceneRef.current.children.includes(controls)) { // Removed
+        //     sceneRef.current.remove(controls); // Removed
+        // }
+      }
+      return () => {
+        controls.removeEventListener('objectChange', onObjectChange);
+        if (controls.object) { // Detach if still attached when component unmounts or selectedObject changes
+            controls.detach();
+        }
+        // if (sceneRef.current && sceneRef.current.children.includes(controls)) {
+        //     sceneRef.current.remove(controls); // Removed
+        // }
+      };
+    }
+  }, [selectedObject, transformControlsRef, sceneRef, currentTransformMode]); // Added currentTransformMode to dependencies
+
+  useEffect(() => {
+    if (cameraRef.current && rendererRef.current && sceneRef.current && sceneObjects.length > 0) {
+      const draggableObjects = sceneObjects.map(obj => obj.mesh).filter(mesh => mesh) as THREE.Object3D[];
+      if (draggableObjects.length === 0) {
+        if (dragControlsRef.current) {
+          dragControlsRef.current.dispose();
+          dragControlsRef.current = null;
+        }
+        return;
+      }
+
+      if (!dragControlsRef.current) {
+        const newDragControls = new DragControls(draggableObjects, cameraRef.current, rendererRef.current.domElement);
+        dragControlsRef.current = newDragControls;
+
+        interface DragControlsEvent {
+          type: 'dragstart' | 'drag' | 'dragend';
+          object: THREE.Object3D;
+        }
+
+        const onDragStart = (event: DragControlsEvent) => {
+          if (orbitControlsRef.current) orbitControlsRef.current.enabled = false;
+        };
+
+        const onDrag = (event: DragControlsEvent) => {
+          event.object.position.x = Math.round(event.object.position.x / GRID_SIZE) * GRID_SIZE;
+          event.object.position.z = Math.round(event.object.position.z / GRID_SIZE) * GRID_SIZE;
+        };
+
+        const onDragEnd = (event: DragControlsEvent) => {
+          if (orbitControlsRef.current) orbitControlsRef.current.enabled = true;
+        };
+
+        dragControlsRef.current.addEventListener('dragstart', onDragStart);
+        dragControlsRef.current.addEventListener('drag', onDrag);
+        dragControlsRef.current.addEventListener('dragend', onDragEnd);
+      }
+    }
+  }, [cameraRef, rendererRef, sceneRef, sceneObjects, dragControlsRef, orbitControlsRef, GRID_SIZE]);
+
+  return (
+    <div className="flex flex-row h-full">
+      {/* Left Column: Controls */}
+      <div className="w-80 bg-white p-4 overflow-y-auto flex-shrink-0 border-r border-gray-300 space-y-4">
+        <section className="p-5 bg-gradient-to-r from-slate-50 to-slate-100 rounded-xl shadow-lg border border-gray-200">
+          <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-blue-600" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+            </svg>
+            요소 추가
+          </h2>
+          <div className="space-y-3">
+            <button 
+              onClick={addStage}
+              className="w-full py-3 px-4 bg-gradient-to-r from-green-500 to-teal-600 text-white font-semibold rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transform transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-75 flex items-center justify-center"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
+              </svg>
+              무대 추가
+            </button>
+            <button 
+              onClick={addTruss}
+              className="w-full py-3 px-4 bg-gradient-to-r from-green-500 to-teal-600 text-white font-semibold rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transform transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-75 flex items-center justify-center"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M5 4a1 1 0 00-2 0v7.268a2 2 0 000 3.464V16a1 1 0 102 0v-1.268a2 2 0 000-3.464V4a1 1 0 10-2 0z" />
+                <path fillRule="evenodd" d="M3 8h14v7a2 2 0 01-2 2H5a2 2 0 01-2-2V8zm5 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" clipRule="evenodd" />
+              </svg>
+              트러스 추가
+            </button>
+            <button 
+              onClick={addLayher}
+              className="w-full py-3 px-4 bg-gradient-to-r from-purple-500 to-violet-600 text-white font-semibold rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transform transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-75 flex items-center justify-center"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M3 3a1 1 0 000 2h14a1 1 0 100-2H3z" />
+                <path fillRule="evenodd" d="M3 8h14v7a2 2 0 01-2 2H5a2 2 0 01-2-2V8zm5 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" clipRule="evenodd" />
+              </svg>
+              레이허 추가
+            </button>
+            <button 
+              onClick={addLighting}
+              className="w-full py-3 px-4 bg-gradient-to-r from-orange-500 to-amber-600 text-white font-semibold rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transform transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-opacity-75 flex items-center justify-center"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M11 3a1 1 0 10-2 0v1a1 1 0 002 0V3zM15.657 5.757a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM18 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zM5.05 6.464A1 1 0 106.464 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM5 10a1 1 0 01-1 1H3a1 1 0 110-2h1a1 1 0 011 1zM8 16v-1h4v1a2 2 0 11-4 0zM12 14c.015-.34.208-.646.477-.859a4 4 0 10-4.954 0c.27.213.462.519.476.859h4.002z" />
+              </svg>
+              조명 추가
+            </button>
+          </div>
+        </section>
+
+        <section className="p-5 bg-gradient-to-r from-slate-50 to-slate-100 rounded-xl shadow-lg border border-gray-200">
+          <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M5 4a1 1 0 00-2 0v7.268a2 2 0 000 3.464V16a1 1 0 102 0v-1.268a2 2 0 000-3.464V4a1 1 0 10-2 0z" />
+              <path fillRule="evenodd" d="M3 8h14v7a2 2 0 01-2 2H5a2 2 0 01-2-2V8zm5 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" clipRule="evenodd" />
+            </svg>
+            속성 편집
+          </h2>
+          <div className="bg-white p-4 rounded-lg shadow-inner mb-4 min-h-[100px]">
+            {renderPropertiesPanel()}
+          </div>
+          {selectedObject && (
+            <div className="mt-4">
+              <button 
+                onClick={applyProperties}
+                className="w-full py-3 px-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-semibold rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transform transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-75 flex items-center justify-center"
+                      {`${selectedObject.type.charAt(0).toUpperCase() + selectedObject.type.slice(1)} (ID: ${selectedObject.id})`}
+                    </>
+                  ) : (
+                    <>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                      </svg>
+                      선택된 요소 없음
+                    </>
+                  )}
+                </div>
+              </div>
+              <button
+                className={`py-3 px-4 flex items-center justify-center w-full rounded-xl shadow-md font-semibold transition duration-200 ease-in-out ${selectedObject ? 'bg-gradient-to-r from-red-500 to-pink-600 text-white hover:shadow-lg hover:-translate-y-0.5 transform' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
+                onClick={() => deleteSelectedObject()} 
+                disabled={!selectedObject}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0111 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                선택 요소 삭제
+              </button>
+
+              {/* Transform Mode Controls */}
+              <div className="mt-4 pt-4 border-t border-gray-300">
+                <h4 className="text-sm font-semibold text-gray-600 mb-2">변환 모드:</h4>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['translate', 'rotate', 'scale'] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => {
+                        setCurrentTransformMode(mode);
+                        if (transformControlsRef.current) {
+                          transformControlsRef.current.setMode(mode);
+                        }
+                      }}
+                      disabled={!selectedObject} // Disable if no object is selected
+                      className={`py-2 px-3 text-xs font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2
+                        ${currentTransformMode === mode 
+                          ? 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500'
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300 focus:ring-indigo-500'}
+                        ${!selectedObject ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+
+      </div>
+
+      {/* Center Column: 3D Viewer */}
+      <div className="flex-grow p-2 relative bg-gray-200 flex flex-col">
+        <div className="absolute top-3 left-3 z-10 w-24 h-24" ref={gizmoRef}></div>
+        <div ref={mountRef} onClick={handleCanvasClick} className="w-full h-full bg-gray-300 border border-gray-400 rounded-md shadow-inner cursor-grab active:cursor-grabbing flex-grow"></div>
+        <div className="absolute bottom-3 right-3 flex space-x-2 z-10">
+          <button onClick={resetCamera} className="py-2 px-3 bg-white text-sm rounded-md shadow hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">카메라 초기화</button>
+          <button onClick={toggleGrid} className="py-2 px-3 bg-white text-sm rounded-md shadow hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">그리드 {gridVisible ? '숨기기' : '표시'}</button>
+          <button onClick={toggleAxes} className="py-2 px-3 bg-white text-sm rounded-md shadow hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">좌표축 {axesVisible ? '숨기기' : '표시'}</button>
+        </div>
+      </div>
+
+      {/* Modals and Loaders */}
+      {showObjectModal && renderObjectModal()}
+      {loading && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex flex-col items-center justify-center z-[9999] text-white">
+          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500 mb-4"></div>
+          <p className="text-xl font-semibold">데이터 로딩 중...</p>
+          <p className="text-sm">잠시만 기다려 주세요.</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default ThreeDConfigurator;

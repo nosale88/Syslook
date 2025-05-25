@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Syslook 3D 컨피규레이터</title>
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+    }
+    
+    #container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    #header {
+      background: linear-gradient(135deg, #0047ab, #000080);
+      color: white;
+      padding: 1rem;
+      text-align: center;
+    }
+    
+    #content {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+    
+    #sidebar {
+      width: 250px;
+      background-color: #f5f5f5;
+      padding: 1rem;
+      overflow-y: auto;
+      border-right: 1px solid #ddd;
+    }
+    
+    #canvas-container {
+      flex: 1;
+      background-color: #eee;
+      position: relative;
+    }
+    
+    #canvas {
+      width: 100%;
+      height: 100%;
+    }
+    
+    .button-group {
+      margin-bottom: 1.5rem;
+    }
+    
+    .button-group h3 {
+      margin-bottom: 0.5rem;
+      color: #333;
+    }
+    
+    .add-button {
+      display: block;
+      width: 100%;
+      padding: 0.75rem;
+      margin-bottom: 0.5rem;
+      border: none;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #0047ab, #000080);
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .add-button:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    }
+    
+    .add-button i {
+      margin-right: 0.5rem;
+    }
+    
+    .message {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background-color: rgba(255, 255, 255, 0.9);
+      padding: 2rem;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      text-align: center;
+      max-width: 80%;
+    }
+    
+    .message h2 {
+      margin-top: 0;
+      color: #0047ab;
+    }
+    
+    .message p {
+      margin-bottom: 1.5rem;
+    }
+    
+    .message button {
+      background: linear-gradient(135deg, #0047ab, #000080);
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 30px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    
+    .message button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+  </style>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+<body>
+  <div id="container">
+    <div id="header">
+      <h1>Syslook 3D 컨피규레이터</h1>
+    </div>
+    
+    <div id="content">
+      <div id="sidebar">
+        <div class="button-group">
+          <h3>스테이지</h3>
+          <button class="add-button" id="add-stage">
+            <i class="fas fa-square"></i> 스테이지 추가
+          </button>
+        </div>
+        
+        <div class="button-group">
+          <h3>트러스</h3>
+          <button class="add-button" id="add-truss">
+            <i class="fas fa-grip-lines"></i> 트러스 추가
+          </button>
+        </div>
+        
+        <div class="button-group">
+          <h3>레이허</h3>
+          <button class="add-button" id="add-layher">
+            <i class="fas fa-th-large"></i> 레이허 추가
+          </button>
+        </div>
+        
+        <div class="button-group">
+          <h3>조명</h3>
+          <button class="add-button" id="add-spot-light">
+            <i class="fas fa-lightbulb"></i> 스팟 조명 추가
+          </button>
+          <button class="add-button" id="add-point-light">
+            <i class="far fa-lightbulb"></i> 포인트 조명 추가
+          </button>
+        </div>
+        
+        <div class="button-group">
+          <h3>LED 스크린</h3>
+          <button class="add-button" id="add-led-screen">
+            <i class="fas fa-tv"></i> LED 스크린 추가
+          </button>
+        </div>
+        
+        <div class="button-group">
+          <h3>스피커</h3>
+          <button class="add-button" id="add-speaker">
+            <i class="fas fa-volume-up"></i> 스피커 추가
+          </button>
+        </div>
+        
+        <div class="button-group">
+          <h3>의자</h3>
+          <button class="add-button" id="add-chair">
+            <i class="fas fa-chair"></i> 의자 추가
+          </button>
+        </div>
+        
+        <div class="button-group">
+          <h3>장식</h3>
+          <button class="add-button" id="add-decoration">
+            <i class="fas fa-star"></i> 장식 추가
+          </button>
+        </div>
+      </div>
+      
+      <div id="canvas-container">
+        <div id="canvas"></div>
+        <div class="message">
+          <h2>3D 컨피규레이터</h2>
+          <p>현재 Node.js 환경이 설치되어 있지 않아 실제 3D 렌더링을 할 수 없습니다. 이 페이지는 UI 디자인만 보여주는 데모입니다.</p>
+          <p>실제 3D 컨피규레이터를 사용하려면 Node.js와 npm을 설치한 후 개발 서버를 실행해야 합니다.</p>
+          <button id="close-message">확인</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('close-message').addEventListener('click', function() {
+      document.querySelector('.message').style.display = 'none';
+    });
+    
+    // 버튼에 이벤트 리스너 추가
+    const buttons = document.querySelectorAll('.add-button');
+    buttons.forEach(button => {
+      button.addEventListener('click', function() {
+        alert('이 기능은 데모 버전에서는 사용할 수 없습니다. 실제 애플리케이션에서는 ' + this.textContent.trim() + ' 기능이 작동합니다.');
+      });
+    });
+  </script>
+</body>
+</html>

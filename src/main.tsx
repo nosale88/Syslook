@@ -2,7 +2,6 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
-import { AuthProvider } from './contexts/AuthContext';
 import { validateEnv } from './utils/envValidator';
 import { Toaster } from 'react-hot-toast';
 
@@ -11,9 +10,7 @@ validateEnv();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AuthProvider>
-      <App />
-      <Toaster position="top-right" />
-    </AuthProvider>
+    <App />
+    <Toaster position="top-right" />
   </StrictMode>
 );

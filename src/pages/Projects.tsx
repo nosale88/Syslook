@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Edit, Calendar as CalendarIcon, Users, DollarSign, MapPin, List } from 'lucide-react';
+import { Edit, Calendar as CalendarIcon, Users, MapPin, List } from 'lucide-react';
 import ProjectSetupModal from '../components/ProjectSetupModal';
 import ProjectDetailModal from '../components/ProjectDetailModal';
 import ProjectEditModal from '../components/ProjectEditModal';
@@ -385,7 +385,7 @@ const Projects = () => {
                   
                   <div className="bg-gray-50 p-4 rounded-lg">
                     <div className="flex items-center mb-2">
-                      <DollarSign className="w-5 h-5 text-blue-500 mr-2" />
+                      <span className="w-5 h-5 text-blue-500 mr-2 flex items-center justify-center text-sm font-bold">₩</span>
                       <h4 className="font-medium text-gray-700">예산</h4>
                     </div>
                     <p className="text-sm text-gray-800 font-medium">

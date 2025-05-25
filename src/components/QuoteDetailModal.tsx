@@ -1,6 +1,6 @@
 import React from 'react';
 import Modal from './Modal';
-import { Calendar, DollarSign, Building2, FileText } from 'lucide-react';
+import { Calendar, Building2, FileText } from 'lucide-react';
 
 interface Quote {
   id: string;

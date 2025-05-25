@@ -1,6 +1,6 @@
 import React from 'react';
 import Modal from './Modal';
-import { Calendar, Users, DollarSign, MapPin, Clock } from 'lucide-react';
+import { Calendar, Users, MapPin, Clock } from 'lucide-react';
 
 interface Project {
   id: number;
@@ -65,7 +65,7 @@ const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
             </div>
           </div>
           <div className="flex items-center">
-            <DollarSign className="w-5 h-5 text-gray-400 mr-2" />
+            <span className="w-5 h-5 text-gray-400 mr-2 flex items-center justify-center text-sm font-bold">₩</span>
             <div>
               <p className="text-sm text-gray-500">예산</p>
               <p className="font-medium">{project.budget.toLocaleString()}원</p>

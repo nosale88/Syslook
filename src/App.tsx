@@ -7,43 +7,18 @@ import Analytics from './pages/Analytics';
 import Vendors from './pages/Vendors';
 import Projects from './pages/Projects';
 import Quotes from './pages/Quotes';
-import Users from './pages/Users';
 import Settings from './pages/Settings';
-import LoginForm from './components/auth/LoginForm';
-import ResetPasswordForm from './components/auth/ResetPasswordForm';
-import { useAuth } from './contexts/AuthContext';
+import ThreeDConfigurator from './pages/ThreeDConfigurator';
+import Equipment from './pages/Equipment';
 import ChatIcon from './components/chat/ChatIcon';
 
-// 새로 추가한 컴포넌트들
-import SystemList from './components/systems/SystemList';
-import SystemDetail from './components/systems/SystemDetail';
-import SystemForm from './components/systems/SystemForm';
+// 프로필 관리 컴포넌트
 import ProfileForm from './components/profile/ProfileForm';
-import DataFetchExample from './components/examples/DataFetchExample';
 
 function AppContent() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const { user, loading } = useAuth();
 
-  // If loading, show loading spinner
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
-
-  // If not authenticated, redirect to login
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <LoginForm />
-      </div>
-    );
-  }
-
-  // If authenticated, show the app
+  // 메인 애플리케이션 컨텐츠
   return (
     <div className="min-h-screen bg-gray-50 flex">
       <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
@@ -62,26 +37,26 @@ function AppContent() {
 
         <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
           <Routes>
+            {/* 3D 견적 도구가 메인 기능이므로 기본 경로를 견적 계산기로 설정 */}
             <Route path="/" element={<Dashboard />} />
-            <Route path="/analytics" element={<Analytics />} />
-            <Route path="/vendors" element={<Vendors />} />
-            <Route path="/projects" element={<Projects />} />
+            <Route path="/configurator" element={<ThreeDConfigurator />} />
+            
+            {/* 견적 관리 */}
             <Route path="/quotes" element={<Quotes />} />
-            <Route path="/users" element={<Users />} />
-            <Route path="/settings" element={<Settings />} />
+            <Route path="/projects" element={<Projects />} />
             
-            {/* 시스템 관리 라우트 */}
-            <Route path="/systems" element={<SystemList />} />
-            <Route path="/systems/new" element={<SystemForm />} />
-            <Route path="/systems/:id" element={<SystemDetail />} />
-            <Route path="/systems/:id/edit" element={<SystemForm isEditing={true} />} />
+            {/* 장비 & 업체 */}
+            <Route path="/equipment" element={<Equipment />} />
+            <Route path="/vendors" element={<Vendors />} />
             
-            {/* 프로필 관리 라우트 */}
+            {/* 분석 & 리포트 */}
+            <Route path="/analytics" element={<Analytics />} />
+            
+            {/* 설정 */}
             <Route path="/profile" element={<ProfileForm />} />
-            
-            {/* 예제 컴포넌트 */}
-            <Route path="/examples/data-fetch" element={<DataFetchExample />} />
             <Route path="/settings" element={<Settings />} />
+            
+            {/* 리다이렉트 */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
@@ -96,8 +71,6 @@ function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/login" element={<LoginForm />} />
-        <Route path="/reset-password" element={<ResetPasswordForm />} />
         <Route path="/*" element={<AppContent />} />
       </Routes>
     </Router>
@@ -107,16 +80,18 @@ function App() {
 function PageTitle() {
   const location = useLocation();
   const titles: { [key: string]: string } = {
-    '/': '대시보드',
-    '/analytics': '분석',
-    '/vendors': '업체 관리',
+    '/': '견적 계산기',
+    '/configurator': '3D 견적 도구',
+    '/quotes': '견적서 목록',
     '/projects': '프로젝트',
-    '/quotes': '견적서',
-    '/users': '사용자',
-    '/settings': '설정'
+    '/equipment': '장비 카탈로그',
+    '/vendors': '협력 업체',
+    '/analytics': '견적 분석',
+    '/profile': '내 프로필',
+    '/settings': '시스템 설정'
   };
 
-  return <h1 className="text-2xl font-bold text-gray-900">{titles[location.pathname]}</h1>;
+  return <h1 className="text-2xl font-bold text-gray-900">{titles[location.pathname] || '3D 견적 솔루션'}</h1>;
 }
 
 export default App;
