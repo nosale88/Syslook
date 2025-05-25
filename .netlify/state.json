@@ -1,0 +1,21 @@
+{
+	"siteId": "6533beea-611c-4f59-b358-d2e8b55469bc",
+	"geolocation": {
+		"data": {
+			"city": "Geumcheon-gu",
+			"country": {
+				"code": "KR",
+				"name": "South Korea"
+			},
+			"subdivision": {
+				"code": "11",
+				"name": "Seoul"
+			},
+			"timezone": "Asia/Seoul",
+			"latitude": 37.4796,
+			"longitude": 126.8746,
+			"postalCode": "085"
+		},
+		"timestamp": 1745311061870
+	}
+}
