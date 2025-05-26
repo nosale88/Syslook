@@ -494,6 +494,334 @@ const ThreeDConfigurator: React.FC<ThreeDConfiguratorProps> = ({ onQuotationChan
     selectObject(newObj);
   };
 
+  // LED 스크린 관련 함수들
+  const calculateLEDScreenPrice = (props: LEDScreenProperties): number => {
+    const area = props.width * props.height;
+    let unitPrice = 50000; // 기본 단가 (원/㎡)
+    
+    // 해상도에 따른 가격 조정
+    if (props.resolution === 'high') unitPrice *= 2;
+    else if (props.resolution === 'medium') unitPrice *= 1.5;
+    
+    // 설치 방식에 따른 가격 조정
+    if (props.installationType === 'flown') unitPrice *= 1.3;
+    else if (props.installationType === 'wall-mounted') unitPrice *= 1.1;
+    
+    return area * unitPrice;
+  };
+
+  const createLEDScreenMesh = (props: LEDScreenProperties): THREE.Group => {
+    const group = new THREE.Group();
+    
+    // LED 스크린 패널
+    const screenGeometry = new THREE.BoxGeometry(props.width, props.height, props.depth || 0.1);
+    const screenMaterial = new THREE.MeshStandardMaterial({ 
+      color: 0x000000,
+      emissive: 0x111111
+    });
+    const screen = new THREE.Mesh(screenGeometry, screenMaterial);
+    screen.position.y = props.height / 2;
+    group.add(screen);
+    
+    // 프레임
+    const frameThickness = 0.05;
+    const frameGeometry = new THREE.BoxGeometry(
+      props.width + frameThickness * 2, 
+      props.height + frameThickness * 2, 
+      frameThickness
+    );
+    const frameMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
+    const frame = new THREE.Mesh(frameGeometry, frameMaterial);
+    frame.position.y = props.height / 2;
+    frame.position.z = -(props.depth || 0.1) / 2 - frameThickness / 2;
+    group.add(frame);
+    
+    return group;
+  };
+
+  const addLEDScreen = () => {
+    if (!sceneRef.current) return;
+    const newIdCounter = objectIdCounter + 1;
+    setObjectIdCounter(newIdCounter);
+    
+    const defaultLEDScreenProps: LEDScreenProperties = {
+      width: 3,
+      height: 2,
+      depth: 0.1,
+      resolution: 'medium',
+      installationType: 'ground-stacked',
+      pixelPitch: 3.9,
+      brightness: 5000
+    };
+    
+    const ledScreenMesh = createLEDScreenMesh(defaultLEDScreenProps);
+    const newObj: SceneObject = {
+      id: `led-screen-${newIdCounter}`,
+      type: 'led_screen',
+      mesh: ledScreenMesh,
+      properties: defaultLEDScreenProps,
+      price: calculateLEDScreenPrice(defaultLEDScreenProps)
+    };
+    
+    const updatedObjects = [...sceneObjects, newObj];
+    setSceneObjects(updatedObjects);
+    sceneRef.current.add(ledScreenMesh);
+    updateTotalQuote(updatedObjects);
+    selectObject(newObj);
+  };
+
+  // 스피커 관련 함수들
+  const calculateSpeakerPrice = (props: SpeakerProperties): number => {
+    let basePrice = 150000; // 기본 가격
+    
+    if (props.type === 'main') {
+      basePrice = 300000;
+    } else if (props.type === 'monitor') {
+      basePrice = 150000;
+    }
+    
+    // 크기에 따른 가격 조정
+    const volume = props.width * props.height * props.depth;
+    return basePrice + (volume * 10000);
+  };
+
+  const createSpeakerMesh = (props: SpeakerProperties): THREE.Group => {
+    const group = new THREE.Group();
+    
+    // 스피커 본체
+    const speakerGeometry = new THREE.BoxGeometry(props.width, props.height, props.depth);
+    const speakerMaterial = new THREE.MeshStandardMaterial({ 
+      color: props.type === 'main' ? 0x222222 : 0x444444 
+    });
+    const speaker = new THREE.Mesh(speakerGeometry, speakerMaterial);
+    speaker.position.y = props.height / 2;
+    group.add(speaker);
+    
+    // 스피커 그릴
+    const grillGeometry = new THREE.CircleGeometry(Math.min(props.width, props.height) * 0.3, 32);
+    const grillMaterial = new THREE.MeshStandardMaterial({ 
+      color: 0x111111,
+      transparent: true,
+      opacity: 0.8
+    });
+    const grill = new THREE.Mesh(grillGeometry, grillMaterial);
+    grill.position.set(0, props.height / 2, props.depth / 2 + 0.01);
+    group.add(grill);
+    
+    return group;
+  };
+
+  const addSpeaker = () => {
+    if (!sceneRef.current) return;
+    const newIdCounter = objectIdCounter + 1;
+    setObjectIdCounter(newIdCounter);
+    
+    const defaultSpeakerProps: SpeakerProperties = {
+      type: 'main',
+      width: 0.6,
+      height: 1.2,
+      depth: 0.4,
+      power: 500
+    };
+    
+    const speakerMesh = createSpeakerMesh(defaultSpeakerProps);
+    const newObj: SceneObject = {
+      id: `speaker-${newIdCounter}`,
+      type: 'speaker',
+      mesh: speakerMesh,
+      properties: defaultSpeakerProps,
+      price: calculateSpeakerPrice(defaultSpeakerProps)
+    };
+    
+    const updatedObjects = [...sceneObjects, newObj];
+    setSceneObjects(updatedObjects);
+    sceneRef.current.add(speakerMesh);
+    updateTotalQuote(updatedObjects);
+    selectObject(newObj);
+  };
+
+  // 좌석 관련 함수들
+  const calculateChairPrice = (props: ChairProperties): number => {
+    let unitPrice = 5000; // 기본 의자 단가
+    
+    if (props.type === 'vip') unitPrice = 15000;
+    else if (props.type === 'standing') unitPrice = 0;
+    
+    return props.rows * props.columns * unitPrice;
+  };
+
+  const createChairMesh = (props: ChairProperties): THREE.Group => {
+    const group = new THREE.Group();
+    
+    const chairWidth = props.width || 0.5;
+    const chairDepth = props.depth || 0.5;
+    const chairHeight = 0.8;
+    
+    for (let row = 0; row < props.rows; row++) {
+      for (let col = 0; col < props.columns; col++) {
+        if (props.type !== 'standing') {
+          // 의자 좌석
+          const seatGeometry = new THREE.BoxGeometry(chairWidth * 0.8, 0.05, chairDepth * 0.8);
+          const seatMaterial = new THREE.MeshStandardMaterial({ 
+            color: props.type === 'vip' ? 0x8B0000 : 0x4169E1 
+          });
+          const seat = new THREE.Mesh(seatGeometry, seatMaterial);
+          seat.position.set(
+            col * (chairWidth + props.spacing) - (props.columns - 1) * (chairWidth + props.spacing) / 2,
+            0.4,
+            row * (chairDepth + props.spacing) - (props.rows - 1) * (chairDepth + props.spacing) / 2
+          );
+          group.add(seat);
+          
+          // 의자 등받이
+          const backGeometry = new THREE.BoxGeometry(chairWidth * 0.8, chairHeight * 0.6, 0.05);
+          const back = new THREE.Mesh(backGeometry, seatMaterial);
+          back.position.set(
+            col * (chairWidth + props.spacing) - (props.columns - 1) * (chairWidth + props.spacing) / 2,
+            chairHeight * 0.5,
+            row * (chairDepth + props.spacing) - (props.rows - 1) * (chairDepth + props.spacing) / 2 + chairDepth * 0.35
+          );
+          group.add(back);
+        } else {
+          // 스탠딩 구역 표시
+          const standingGeometry = new THREE.PlaneGeometry(chairWidth, chairDepth);
+          const standingMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x90EE90,
+            transparent: true,
+            opacity: 0.3
+          });
+          const standing = new THREE.Mesh(standingGeometry, standingMaterial);
+          standing.rotation.x = -Math.PI / 2;
+          standing.position.set(
+            col * (chairWidth + props.spacing) - (props.columns - 1) * (chairWidth + props.spacing) / 2,
+            0.01,
+            row * (chairDepth + props.spacing) - (props.rows - 1) * (chairDepth + props.spacing) / 2
+          );
+          group.add(standing);
+        }
+      }
+    }
+    
+    return group;
+  };
+
+  const addChair = () => {
+    if (!sceneRef.current) return;
+    const newIdCounter = objectIdCounter + 1;
+    setObjectIdCounter(newIdCounter);
+    
+    const defaultChairProps: ChairProperties = {
+      type: 'standard',
+      width: 0.5,
+      depth: 0.5,
+      rows: 5,
+      columns: 10,
+      spacing: 0.1
+    };
+    
+    const chairMesh = createChairMesh(defaultChairProps);
+    const newObj: SceneObject = {
+      id: `chair-${newIdCounter}`,
+      type: 'chair',
+      mesh: chairMesh,
+      properties: defaultChairProps,
+      price: calculateChairPrice(defaultChairProps)
+    };
+    
+    const updatedObjects = [...sceneObjects, newObj];
+    setSceneObjects(updatedObjects);
+    sceneRef.current.add(chairMesh);
+    updateTotalQuote(updatedObjects);
+    selectObject(newObj);
+  };
+
+  // 장식 관련 함수들
+  const calculateDecorationPrice = (props: DecorationProperties): number => {
+    const area = props.width * props.height;
+    let unitPrice = 20000; // 기본 단가
+    
+    if (props.type === 'backdrop') unitPrice = 30000;
+    else if (props.type === 'banner') unitPrice = 15000;
+    else if (props.type === 'flower') unitPrice = 50000;
+    
+    return area * unitPrice;
+  };
+
+  const createDecorationMesh = (props: DecorationProperties): THREE.Group => {
+    const group = new THREE.Group();
+    
+    switch (props.type) {
+      case 'backdrop':
+        const backdropGeometry = new THREE.PlaneGeometry(props.width, props.height);
+        const backdropMaterial = new THREE.MeshStandardMaterial({ 
+          color: props.color,
+          side: THREE.DoubleSide
+        });
+        const backdrop = new THREE.Mesh(backdropGeometry, backdropMaterial);
+        backdrop.position.y = props.height / 2;
+        group.add(backdrop);
+        break;
+        
+      case 'banner':
+        const bannerGeometry = new THREE.PlaneGeometry(props.width, props.height);
+        const bannerMaterial = new THREE.MeshStandardMaterial({ 
+          color: props.color,
+          side: THREE.DoubleSide
+        });
+        const banner = new THREE.Mesh(bannerGeometry, bannerMaterial);
+        banner.position.y = props.height / 2;
+        banner.rotation.y = Math.PI / 4; // 약간 각도를 줌
+        group.add(banner);
+        break;
+        
+      case 'flower':
+        // 화분
+        const potGeometry = new THREE.CylinderGeometry(0.3, 0.2, 0.4, 16);
+        const potMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+        const pot = new THREE.Mesh(potGeometry, potMaterial);
+        pot.position.y = 0.2;
+        group.add(pot);
+        
+        // 꽃
+        const flowerGeometry = new THREE.SphereGeometry(0.2, 16, 16);
+        const flowerMaterial = new THREE.MeshStandardMaterial({ color: props.color });
+        const flower = new THREE.Mesh(flowerGeometry, flowerMaterial);
+        flower.position.y = 0.6;
+        group.add(flower);
+        break;
+    }
+    
+    return group;
+  };
+
+  const addDecoration = () => {
+    if (!sceneRef.current) return;
+    const newIdCounter = objectIdCounter + 1;
+    setObjectIdCounter(newIdCounter);
+    
+    const defaultDecorationProps: DecorationProperties = {
+      type: 'backdrop',
+      width: 4,
+      height: 3,
+      color: '#ffffff'
+    };
+    
+    const decorationMesh = createDecorationMesh(defaultDecorationProps);
+    const newObj: SceneObject = {
+      id: `decoration-${newIdCounter}`,
+      type: 'decoration',
+      mesh: decorationMesh,
+      properties: defaultDecorationProps,
+      price: calculateDecorationPrice(defaultDecorationProps)
+    };
+    
+    const updatedObjects = [...sceneObjects, newObj];
+    setSceneObjects(updatedObjects);
+    sceneRef.current.add(decorationMesh);
+    updateTotalQuote(updatedObjects);
+    selectObject(newObj);
+  };
+
   // 견적 관련 함수들
   const aggregateQuotationItems = (objects: SceneObject[]): QuotationItem[] => {
     const groupedItems: Map<string, QuotationItem> = new Map();
@@ -534,6 +862,26 @@ const ThreeDConfigurator: React.FC<ThreeDConfiguratorProps> = ({ onQuotationChan
           const lightingProps = props as LightingProperties;
           key = `lighting-${lightingProps.type}-${lightingProps.color}-${lightingProps.intensity}`;
           description = `조명 (타입: ${lightingProps.type}, 색상: ${lightingProps.color}, 강도: ${lightingProps.intensity})`;
+          break;
+        case 'led_screen':
+          const ledScreenProps = props as LEDScreenProperties;
+          key = `led-screen-${ledScreenProps.width}-${ledScreenProps.height}-${ledScreenProps.resolution}`;
+          description = `LED 스크린 (${ledScreenProps.width.toFixed(2)}m x ${ledScreenProps.height.toFixed(2)}m, 해상도: ${ledScreenProps.resolution})`;
+          break;
+        case 'speaker':
+          const speakerProps = props as SpeakerProperties;
+          key = `speaker-${speakerProps.type}-${speakerProps.width}-${speakerProps.height}`;
+          description = `스피커 (타입: ${speakerProps.type}, 크기: ${speakerProps.width.toFixed(2)}m x ${speakerProps.height.toFixed(2)}m)`;
+          break;
+        case 'chair':
+          const chairProps = props as ChairProperties;
+          key = `chair-${chairProps.type}-${chairProps.rows}-${chairProps.columns}`;
+          description = `좌석 (타입: ${chairProps.type}, ${chairProps.rows}행 x ${chairProps.columns}열)`;
+          break;
+        case 'decoration':
+          const decorationProps = props as DecorationProperties;
+          key = `decoration-${decorationProps.type}-${decorationProps.width}-${decorationProps.height}`;
+          description = `장식 (타입: ${decorationProps.type}, ${decorationProps.width.toFixed(2)}m x ${decorationProps.height.toFixed(2)}m)`;
           break;
         default:
           key = `unknown-${obj.id}`;
@@ -881,6 +1229,30 @@ const ThreeDConfigurator: React.FC<ThreeDConfiguratorProps> = ({ onQuotationChan
               className="w-full py-3 px-4 bg-gradient-to-r from-orange-500 to-amber-600 text-white font-semibold rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transform transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-opacity-75 flex items-center justify-center"
             >
               조명 추가
+            </button>
+            <button 
+              onClick={addLEDScreen}
+              className="w-full py-3 px-4 bg-gradient-to-r from-red-500 to-pink-600 text-white font-semibold rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transform transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-75 flex items-center justify-center"
+            >
+              LED 스크린 추가
+            </button>
+            <button 
+              onClick={addSpeaker}
+              className="w-full py-3 px-4 bg-gradient-to-r from-indigo-500 to-blue-600 text-white font-semibold rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transform transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-75 flex items-center justify-center"
+            >
+              스피커 추가
+            </button>
+            <button 
+              onClick={addChair}
+              className="w-full py-3 px-4 bg-gradient-to-r from-emerald-500 to-green-600 text-white font-semibold rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transform transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-75 flex items-center justify-center"
+            >
+              좌석 추가
+            </button>
+            <button 
+              onClick={addDecoration}
+              className="w-full py-3 px-4 bg-gradient-to-r from-rose-500 to-pink-600 text-white font-semibold rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transform transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-opacity-75 flex items-center justify-center"
+            >
+              장식 추가
             </button>
           </div>
         </section>
