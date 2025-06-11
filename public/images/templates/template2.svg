@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="210" height="297" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="210" height="297" fill="#f0fdf4"/>
+  
+  <!-- 헤더 -->
+  <rect x="10" y="10" width="190" height="50" fill="#dcfce7" stroke="#86efac" stroke-width="0.5"/>
+  <text x="20" y="30" font-family="Arial" font-size="16" font-weight="bold" fill="#16a34a">견적서</text>
+  <text x="20" y="45" font-family="Arial" font-size="10" fill="#16a34a">Quotation</text>
+  
+  <!-- 회사 정보 -->
+  <rect x="130" y="10" width="70" height="50" fill="#dcfce7"/>
+  <text x="200" y="25" font-family="Arial" font-size="10" font-weight="bold" text-anchor="end" fill="#166534">시스룩 (Syslook)</text>
+  <text x="200" y="35" font-family="Arial" font-size="8" text-anchor="end" fill="#166534">서울특별시 강남구 테헤란로 123</text>
+  <text x="200" y="45" font-family="Arial" font-size="8" text-anchor="end" fill="#166534">02-1234-5678</text>
+  
+  <!-- 견적 정보 섹션 -->
+  <rect x="10" y="70" width="90" height="80" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="0.5"/>
+  <text x="15" y="85" font-family="Arial" font-size="10" font-weight="bold" fill="#166534">견적 대상</text>
+  <text x="15" y="100" font-family="Arial" font-size="9" fill="#166534">고객명</text>
+  <text x="15" y="115" font-family="Arial" font-size="8" fill="#166534">고객 주소</text>
+  <text x="15" y="130" font-family="Arial" font-size="8" fill="#166534">고객 연락처</text>
+  <text x="15" y="145" font-family="Arial" font-size="8" fill="#166534">고객 이메일</text>
+  
+  <!-- 견적 정보 -->
+  <rect x="110" y="70" width="90" height="80" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="0.5"/>
+  <text x="115" y="85" font-family="Arial" font-size="10" font-weight="bold" fill="#166534">견적 정보</text>
+  <text x="115" y="100" font-family="Arial" font-size="8" fill="#166534">견적번호: Q-2025-002</text>
+  <text x="115" y="115" font-family="Arial" font-size="8" fill="#166534">견적명: 장비 대여</text>
+  <text x="115" y="130" font-family="Arial" font-size="8" fill="#166534">견적일자: 2025-05-07</text>
+  <text x="115" y="145" font-family="Arial" font-size="8" fill="#166534">유효기간: 2025-06-07</text>
+  
+  <!-- 견적 항목 테이블 -->
+  <text x="10" y="165" font-family="Arial" font-size="10" font-weight="bold" fill="#166534">견적 항목</text>
+  
+  <!-- 테이블 헤더 -->
+  <rect x="10" y="170" width="190" height="20" fill="#bbf7d0" stroke="#86efac" stroke-width="0.5"/>
+  <text x="15" y="184" font-family="Arial" font-size="8" font-weight="bold" fill="#166534">항목</text>
+  <text x="120" y="184" font-family="Arial" font-size="8" font-weight="bold" fill="#166534" text-anchor="middle">수량</text>
+  <text x="150" y="184" font-family="Arial" font-size="8" font-weight="bold" fill="#166534" text-anchor="middle">단가</text>
+  <text x="190" y="184" font-family="Arial" font-size="8" font-weight="bold" fill="#166534" text-anchor="end">금액</text>
+  
+  <!-- 테이블 행 -->
+  <rect x="10" y="190" width="190" height="20" fill="#ffffff" stroke="#bbf7d0" stroke-width="0.5"/>
+  <text x="15" y="204" font-family="Arial" font-size="8" fill="#166534">음향 장비 대여</text>
+  <text x="120" y="204" font-family="Arial" font-size="8" fill="#166534" text-anchor="middle">1</text>
+  <text x="150" y="204" font-family="Arial" font-size="8" fill="#166534" text-anchor="middle">800,000</text>
+  <text x="190" y="204" font-family="Arial" font-size="8" fill="#166534" text-anchor="end">800,000원</text>
+  
+  <rect x="10" y="210" width="190" height="20" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="0.5"/>
+  <text x="15" y="224" font-family="Arial" font-size="8" fill="#166534">조명 장비 대여</text>
+  <text x="120" y="224" font-family="Arial" font-size="8" fill="#166534" text-anchor="middle">1</text>
+  <text x="150" y="224" font-family="Arial" font-size="8" fill="#166534" text-anchor="middle">500,000</text>
+  <text x="190" y="224" font-family="Arial" font-size="8" fill="#166534" text-anchor="end">500,000원</text>
+  
+  <!-- 합계 -->
+  <rect x="10" y="230" width="190" height="20" fill="#dcfce7" stroke="#86efac" stroke-width="0.5"/>
+  <text x="150" y="244" font-family="Arial" font-size="9" font-weight="bold" fill="#166534" text-anchor="end">합계</text>
+  <text x="190" y="244" font-family="Arial" font-size="9" font-weight="bold" fill="#166534" text-anchor="end">1,300,000원</text>
+  
+  <!-- 참고사항 -->
+  <text x="10" y="260" font-family="Arial" font-size="10" font-weight="bold" fill="#166534">참고사항</text>
+  <rect x="10" y="265" width="190" height="30" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="0.5"/>
+  <text x="15" y="278" font-family="Arial" font-size="7" fill="#166534">1. 본 견적서의 유효기간은 발행일로부터 30일입니다.</text>
+  <text x="15" y="288" font-family="Arial" font-size="7" fill="#166534">2. 견적 금액은 부가가치세가 포함된 금액입니다.</text>
+  
+  <!-- 서명 -->
+  <text x="105" y="310" font-family="Arial" font-size="9" text-anchor="middle" fill="#166534">위와 같이 견적합니다.</text>
+  <text x="105" y="325" font-family="Arial" font-size="9" font-weight="bold" text-anchor="middle" fill="#166534">2025년 5월 7일</text>
+  <text x="105" y="340" font-family="Arial" font-size="10" font-weight="bold" text-anchor="middle" fill="#166534">시스룩 (Syslook)</text>
+</svg>

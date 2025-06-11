@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Syslook 3D Configurator - Direct Access</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background: linear-gradient(135deg, #0047ab, #000080);
+      color: white;
+      text-align: center;
+    }
+    .container {
+      max-width: 600px;
+      padding: 2rem;
+      background-color: rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      backdrop-filter: blur(10px);
+    }
+    h1 {
+      margin-bottom: 1.5rem;
+    }
+    .button {
+      display: inline-block;
+      background: linear-gradient(135deg, #4169e1, #0000cd);
+      color: white;
+      padding: 12px 24px;
+      border-radius: 30px;
+      text-decoration: none;
+      font-weight: bold;
+      margin-top: 1rem;
+      border: none;
+      cursor: pointer;
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    .button:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Syslook 3D Configurator</h1>
+    <p>Click the button below to access the 3D Configurator directly without login.</p>
+    <button id="accessButton" class="button">Access 3D Configurator</button>
+  </div>
+
+  <script>
+    document.getElementById('accessButton').addEventListener('click', function() {
+      // Open a new window with the configurator
+      const configuratorWindow = window.open('http://localhost:3000/configurator', '_blank');
+      
+      // If the window was successfully opened, try to bypass login
+      if (configuratorWindow) {
+        // Give the window time to load
+        setTimeout(() => {
+          try {
+            // Try to execute script in the new window to bypass login
+            configuratorWindow.eval(`
+              // Mock authentication data
+              if (window.localStorage) {
+                localStorage.setItem('supabase.auth.token', JSON.stringify({
+                  access_token: 'mock-token',
+                  expires_at: ${Date.now() + 86400000},
+                  refresh_token: 'mock-refresh-token',
+                  user: {
+                    id: 'mock-user-id',
+                    email: 'user@example.com',
+                    user_metadata: {
+                      full_name: 'Demo User',
+                      avatar_url: 'https://via.placeholder.com/150'
+                    }
+                  }
+                }));
+                
+                // Force navigation to configurator
+                window.location.href = '/configurator';
+              }
+            `);
+          } catch (e) {
+            console.error('Failed to inject script into new window:', e);
+          }
+        }, 1000);
+      }
+    });
+  </script>
+</body>
+</html>
